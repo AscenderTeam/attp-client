@@ -1,0 +1,21 @@
+[project]
+name = "attp-client"
+version = "0.0.1"
+description = "A python-sdk client for interacting with AgentHub's ATTP protocol (Agent Tool Transport Protocol)"
+authors = [
+    {name = "Ascender Team"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "pydantic (>=2.11.7,<3.0.0)",
+    "attp-core (>=0.1.8,<0.2.0)",
+    "msgpack (>=1.1.1,<2.0.0)",
+    "ascender-framework (>=2.0rc7,<3.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
