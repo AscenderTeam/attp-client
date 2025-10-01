@@ -28,7 +28,7 @@ class ATTPClient:
     ):
         self.__agt_token = agt_token
         self.organization_id = organization_id
-        self.connection_url = connection_url or "attp://localhost"
+        self.connection_url = connection_url or "attp://localhost:6563"
         
         self.client = AttpClientSession(self.connection_url)
         self.session = None
@@ -52,9 +52,10 @@ class ATTPClient:
             client.session, 
             agt_token=self.__agt_token, 
             organization_id=self.organization_id,
-            route_mappings=self.routes,
+            # route_mappings=self.routes,
             logger=self.logger or getLogger("Ascender Framework")
         )
+        asyncio.create_task(self.session.start_listener())
         # Send an authentication frame as soon as connection estabilishes with agenthub
         await self.session.authenticate(self.routes)
         asyncio.create_task(self.session.listen(self.responder))
@@ -70,9 +71,9 @@ class ATTPClient:
         if route_type in ["connect", "disconnect"]:
             self.routes.append(
                 AttpRouteMapping(
-                    pattern=pattern, 
-                    route_id=0, 
-                    route_type=route_type, 
+                    pattern=pattern,
+                    route_id=0,
+                    route_type=route_type,
                     callback=callback
                 )
             )

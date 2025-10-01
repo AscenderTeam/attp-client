@@ -1,5 +1,3 @@
-from abc import abstractmethod
-from asyncio import Event
 import asyncio
 from logging import Logger, getLogger
 import traceback
@@ -35,7 +33,7 @@ class SessionDriver:
         agt_token: str,
         organization_id: int,
         *,
-        route_mappings: Sequence[AttpRouteMapping],
+        # route_mappings: Sequence[AttpRouteMapping],
         logger: Logger = getLogger("Ascender Framework"),
     ) -> None:
         self.agt_token = agt_token
@@ -44,7 +42,7 @@ class SessionDriver:
         self.server_routes = None
         self.logger = logger
         
-        self.client_routes = [IRouteMapping.from_route_mapper(mapper) for mapper in route_mappings]
+        self.client_routes = []
         # self.is_authenticated = False
         
         self.messages = asyncio.Queue[PyAttpMessage]()
@@ -113,13 +111,16 @@ class SessionDriver:
             raise UnauthenticatedError(f"Cannot send an ATTP message with acknowledgement to unauthenticated (route_mapping={route})")
         
         correlation_id = uuid4().bytes
+        print(route)
         relevant_route = route
         
         if isinstance(route, str):
             relevant_route = resolve_route_by_id("message", route, self.server_routes).route_id
         
-        frame = PyAttpMessage(int(relevant_route), AttpCommand.CALL, correlation_id=correlation_id, payload=data.mpd() if data else None, version=ATTP_VERSION)
+        print("RELEVANT ROUTE", relevant_route)
         
+        frame = PyAttpMessage(int(relevant_route), AttpCommand.CALL, correlation_id=correlation_id, payload=data.mpd() if data is not None else None, version=ATTP_VERSION)
+        print(frame.payload)
         await self.send_raw(frame)
         
         return correlation_id
@@ -143,10 +144,9 @@ class SessionDriver:
         relevant_route = route
         
         if isinstance(route, str):
-            relevant_route = resolve_route_by_id("message", route, self.server_routes).route_id
+            relevant_route = resolve_route_by_id("event", route, self.server_routes).route_id
         
-        frame = PyAttpMessage(int(relevant_route), AttpCommand.CALL, correlation_id=None, payload=data.mpd() if data else None, version=ATTP_VERSION)
-        
+        frame = PyAttpMessage(int(relevant_route), AttpCommand.CALL, correlation_id=None, payload=data.mpd() if data is not None else None, version=ATTP_VERSION)
         await self.send_raw(frame)
     
     async def authenticate(self, route_mappings: Sequence[AttpRouteMapping] | None) -> None:
@@ -204,7 +204,7 @@ class SessionDriver:
         
         
         if isinstance(route, str):
-            relevant_route = resolve_route_by_id("message", route, self.server_routes).route_id
+            relevant_route = resolve_route_by_id("err", route, self.server_routes).route_id
         
         await self.send_raw(
             PyAttpMessage(
@@ -270,6 +270,10 @@ class SessionDriver:
         del self.session
     
     async def handle_ready(self, frame: IReady):
+        self.server_routes = frame.server_routes
+        
+        # print(frame.server_routes)
+        
         data = PyAttpMessage(
             route_id=0,
             command_type=AttpCommand.READY,
@@ -285,7 +289,7 @@ class SessionDriver:
         # assert self.session
         
         for event in events:
-            if event.route_id <= 1 and AttpCommand.READY:
+            if event.route_id == 0 and event.command_type == AttpCommand.READY:
                 try:
                     if not event.payload:
                         continue

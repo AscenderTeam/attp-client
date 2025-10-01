@@ -57,7 +57,7 @@ class AttpRouter:
         
         responder = ContextAwaiter[Any](defer(
             lambda _: (
-                from_future(asyncio.ensure_future(self.session.send_message(route, data))).pipe(
+                from_future(asyncio.ensure_future(self.session.send_message(route=route, data=data))).pipe(
                     ops.flat_map(
                         lambda cid: empty().pipe(
                             ops.concat(self.__pipe_filter(cid, timeout=timeout))
@@ -69,7 +69,7 @@ class AttpRouter:
         
         response_data = await responder.wait()
         
-        return self.__format_response(expected_type=expected_response, response_data=response_data)
+        return self.__format_response(expected_type=expected_response or Any, response_data=response_data)
     
     async def emit(self, route: str, data: FixedBaseModel | Serializable | None = None):
         await self.session.emit_message(route, data)
@@ -77,7 +77,7 @@ class AttpRouter:
     def __pipe_filter(self, awaiting_correlation_id: bytes, timeout: float):
         loop = asyncio.get_event_loop()
         asyncio_scheduler = AsyncIOScheduler(loop)
-        
+        print(awaiting_correlation_id)
         return self.responder.pipe(
             ops.subscribe_on(asyncio_scheduler),
             ops.filter(lambda pair: pair.correlation_id == awaiting_correlation_id),
@@ -86,9 +86,9 @@ class AttpRouter:
             ##     This is RPC Defer Handler     ##
             #######################################
             ops.timeout_with_mapper(
-                timer(timeout),
+                timer(timeout, scheduler=asyncio_scheduler),
                 lambda i: (
-                    timer(timeout) if getattr(i, "frame_type", None) == "DEFER" else of(None)
+                    timer(timeout, scheduler=asyncio_scheduler) if getattr(i, "frame_type", None) == AttpCommand.DEFER else of(None)
                 ),
                 throw(TimeoutError("ATTP response failed."))
             ),

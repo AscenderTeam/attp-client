@@ -1,5 +1,5 @@
 from typing import Any
-from misc.fixed_basemodel import FixedBaseModel
+from attp_client.misc.fixed_basemodel import FixedBaseModel
 
 
 class IErr(FixedBaseModel):
