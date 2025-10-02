@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 from attp_client.interfaces.inference.enums.message_emergency_type import MessageEmergencyTypeEnum
 from attp_client.interfaces.inference.enums.message_type import MessageTypeEnum
@@ -34,6 +34,7 @@ class IMessageDTOV2(FixedBaseModel):
     tool_error_detail: str | None = None
 
     specialist_required: MessageEmergencyTypeEnum | None = None
+    metadata: dict[str, Any] | None = None
 
     def to_wrap(self) -> dict:
         w = self.model_dump()
