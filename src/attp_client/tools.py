@@ -15,6 +15,7 @@ class ToolsManager:
         name: str, 
         description: str | None = None,
         schema_id: str | None = None,
+        schema: dict | None = None,
         *,
         return_direct: bool = False,
         schema_ver: str = "1.0",
@@ -31,6 +32,7 @@ class ToolsManager:
                     "schema_id": schema_id,
                     "return_direct": return_direct,
                     "schema_ver": schema_ver,
+                    "schema": schema,
                     "timeout_ms": timeout_ms,
                     "idempotent": idempotent
                 }
