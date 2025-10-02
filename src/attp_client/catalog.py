@@ -96,7 +96,7 @@ class AttpCatalog:
         self.tool_name_to_id_symlink[name] = str(assigned_id)
         return assigned_id
     
-    async def detatch_tool(
+    async def detach_tool(
         self,
         name: str
     ):
@@ -107,6 +107,13 @@ class AttpCatalog:
         
         await self.tool_manager.unregister(self.catalog_name, tool_id)
         return tool_id
+    
+    async def detach_all_tools(self):
+        for tool_id in list(self.attached_tools.keys()):
+            await self.tool_manager.unregister(self.catalog_name, tool_id)
+            del self.attached_tools[tool_id]
+        
+        self.tool_name_to_id_symlink.clear()
     
     async def handle_call(self, envelope: IEnvelope) -> Any:
         tool = self.attached_tools.get(envelope.tool_id)
