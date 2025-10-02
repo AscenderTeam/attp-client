@@ -25,16 +25,18 @@ class ToolsManager:
         response = await self.router.send(
             "tools:register",
             Serializable[dict[str, Any]]({
-                "catalog": catalog_name,
-                "tool": {
-                    "name": name,
-                    "description": description,
-                    "schema_id": schema_id,
-                    "return_direct": return_direct,
-                    "schema_ver": schema_ver,
-                    "schema": schema,
-                    "timeout_ms": timeout_ms,
-                    "idempotent": idempotent
+                "data": {
+                    "catalog": catalog_name,
+                    "tool": {
+                        "name": name,
+                        "description": description,
+                        "schema_id": schema_id,
+                        "return_direct": return_direct,
+                        "schema_ver": schema_ver,
+                        "schema": schema,
+                        "timeout_ms": timeout_ms,
+                        "idempotent": idempotent
+                    }
                 }
             }),
             timeout=30,
@@ -51,8 +53,10 @@ class ToolsManager:
         response = await self.router.send(
             "tool:unregister",
             Serializable[dict[str, Any]]({
-                "catalog": catalog_name,
-                "tool_id": tool_id
+                "data": {
+                    "catalog": catalog_name,
+                    "tool_id": tool_id
+                }
             }),
             timeout=30,
             expected_response=dict[str, Any]

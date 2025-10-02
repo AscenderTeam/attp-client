@@ -67,11 +67,13 @@ class AttpInferenceAPI:
             raise ValueError("Cannot find agent by two identification specifiers, use only one!")
         
         response = await self.router.send("messages:inference:invoke", Serializable[dict[str, Any]]({
-            "agent_id": agent_id,
-            "agent_name": agent_name,
-            "input_configuration": input_configuration,
-            "messages": [message.model_dump(mode="json") for message in (messages or [])],
-            "stream": stream
+            "data": {
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "input_configuration": input_configuration,
+                "messages": [message.model_dump(mode="json") for message in (messages or [])],
+                "stream": stream
+            }    
         }), timeout=timeout, expected_response=IMessageResponse)
         
         return response
@@ -107,9 +109,14 @@ class AttpInferenceAPI:
         
         response = await self.router.send(
             "messages:chat:invoke", 
-            Serializable[dict[str, Any]]({"chat_id": str(chat_id), "stream": stream}),
+            Serializable[dict[str, Any]]({
+                "data": {
+                    "chat_id": str(chat_id),
+                    "stream": stream
+                }
+            }),
             timeout=timeout,
-            # expected_response=IMessageResponse
+            expected_response=IMessageResponse
         )
         
         return response
@@ -125,6 +132,6 @@ class AttpInferenceAPI:
         """
         if isinstance(message, Sequence):
             for msg in message:
-                await self.router.emit("messages:append", msg)
+                await self.router.emit("messages:append", Serializable[dict[str, Any]]({"data": msg}))
         else:
-            await self.router.emit("messages:append", message)
+            await self.router.emit("messages:append", Serializable[dict[str, Any]]({"data": message}))
