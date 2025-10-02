@@ -20,23 +20,23 @@ class ToolsManager:
         return_direct: bool = False,
         schema_ver: str = "1.0",
         timeout_ms: float = 20000,
-        idempotent: bool = False
+        idempotent: bool = False,
+        configs: Any | None = None
     ) -> UUID:
         response = await self.router.send(
             "tools:register",
             Serializable[dict[str, Any]]({
-                "data": {
-                    "catalog": catalog_name,
-                    "tool": {
-                        "name": name,
-                        "description": description,
-                        "schema_id": schema_id,
-                        "return_direct": return_direct,
-                        "schema_ver": schema_ver,
-                        "schema": schema,
-                        "timeout_ms": timeout_ms,
-                        "idempotent": idempotent
-                    }
+                "catalog": catalog_name,
+                "tool": {
+                    "name": name,
+                    "description": description,
+                    "schema_id": schema_id,
+                    "return_direct": return_direct,
+                    "schema_ver": schema_ver,
+                    "schema": schema,
+                    "timeout_ms": timeout_ms,
+                    "idempotent": idempotent,
+                    "config": configs or {}
                 }
             }),
             timeout=30,
@@ -53,10 +53,8 @@ class ToolsManager:
         response = await self.router.send(
             "tool:unregister",
             Serializable[dict[str, Any]]({
-                "data": {
-                    "catalog": catalog_name,
-                    "tool_id": tool_id
-                }
+                "catalog": catalog_name,
+                "tool_id": tool_id
             }),
             timeout=30,
             expected_response=dict[str, Any]
