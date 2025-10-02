@@ -303,7 +303,7 @@ class SessionDriver:
             
             else:
                 if self.is_authenticated:
-                    self.logger.debug("cyan]ATTP[/] ┆ Handing incoming message to a route handler.")
+                    self.logger.debug("[cyan]ATTP[/] ┆ Handing incoming message to a route handler.")
                     self.messages.put_nowait(event)
 
     async def start_listener(self):
