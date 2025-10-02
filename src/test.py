@@ -1,5 +1,9 @@
 import asyncio
+from typing import Any
+from uuid import UUID
 from attp_client.client import ATTPClient
+from attp_client.interfaces.inference.enums.message_type import MessageTypeEnum
+from attp_client.interfaces.inference.message import IMessageDTOV2
 from attp_client.misc.serializable import Serializable
 
 
@@ -11,10 +15,33 @@ client = ATTPClient(
 
 async def main():
     await client.connect()
-    response = await client.router.send("experimental", Serializable[dict[str, str]]({"asd": "Hello world!"}), timeout=20)
+    # await client.router.emit("messages:append")
+    # response = await client.router.send("messages:inference:invoke", Serializable[dict[str, Any]]({
+    #     "agent_id": 17,
+    #     "input_configuration": {},
+    #     "messages": [],
+    # }))
+    # response = await client.router.send("", Serializable[dict[str, str]]({"asd": "Hello world!"}), timeout=20)
     
-    print("IT IS A RESPONSE:", response)
+    # print("RESPONSE IS:", response)
+    
+    response = await client.inference.invoke_chat_inference(
+        chat_id=UUID(hex="51e5bd7e-4f63-4a43-9430-c67c4e7a4b1f"),
+        messages=[IMessageDTOV2(
+            content="Hello world!",
+            message_type=MessageTypeEnum.USER_MESSAGE,
+            chat_id=UUID(hex="51e5bd7e-4f63-4a43-9430-c67c4e7a4b1f")
+        ), IMessageDTOV2(
+            content="Hello world!",
+            message_type=MessageTypeEnum.USER_MESSAGE,
+            chat_id=UUID(hex="51e5bd7e-4f63-4a43-9430-c67c4e7a4b1f")
+        )],
+        timeout=10
+    )
 
+
+    print("RESPONSE IS:", response)
+    await client.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

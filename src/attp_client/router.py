@@ -60,7 +60,7 @@ class AttpRouter:
                 from_future(asyncio.ensure_future(self.session.send_message(route=route, data=data))).pipe(
                     ops.flat_map(
                         lambda cid: empty().pipe(
-                            ops.concat(self.__pipe_filter(cid, timeout=timeout))
+                            ops.concat(self.__pipe_filter(cid, timeout=timeout)),
                         )
                     )
                 )
@@ -93,7 +93,7 @@ class AttpRouter:
                 throw(TimeoutError("ATTP response failed."))
             ),
             ops.filter(lambda pair: pair.command_type == AttpCommand.ACK),
-            ops.first()
+            ops.first(),
         )
 
     def __format_response(self, expected_type: Any, response_data: PyAttpMessage):

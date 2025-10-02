@@ -121,13 +121,13 @@ watchfiles = ">=1.0.5,<2.0.0"
 
 [[package]]
 name = "attp-core"
-version = "0.1.9"
+version = "0.1.10"
 description = ""
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "attp_core-0.1.9-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a1a01cc866e1fe58d4f707edd5bfa44af94b4ade92fe57c37ca9c1306bf40a93"},
+    {file = "attp_core-0.1.10-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1c9a463c09173bc643e83e08c820e6b4b20ca4fc80b05c5bbfb61d2e95bd5b46"},
 ]
 
 [[package]]
@@ -1504,4 +1504,4 @@ anyio = ">=3.0.0"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.14"
-content-hash = "bbce54a30db2c0c91d5f31a12a0f28f6cc50e800b782314dc53052b7ab16a0bf"
+content-hash = "5bbc540a82d8272f6cff0bc2844abd69922e5a1bb3a1822f2fb4bd0bc82d9755"

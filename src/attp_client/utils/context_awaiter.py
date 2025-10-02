@@ -14,9 +14,10 @@ class ContextAwaiter(Generic[T]):
         self.observable = observable
         self.response = asyncio.Future[T]()
         self.event = asyncio.Event()
+        self.subscription = None
         
     async def wait(self) -> T:
-        self.observable.subscribe(
+        self.subscription = self.observable.subscribe(
             on_next=self.__define_response,
             on_error=self.__set_error
         )
@@ -24,6 +25,10 @@ class ContextAwaiter(Generic[T]):
         return await self.response
     
     def __define_response(self, resp: T):
+        if self.subscription:
+            self.subscription.dispose()
+            self.subscription = None
+        
         if not self.response.done():
             self.response.set_result(resp)
         self.event.set()

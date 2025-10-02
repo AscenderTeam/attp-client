@@ -111,7 +111,6 @@ class SessionDriver:
             raise UnauthenticatedError(f"Cannot send an ATTP message with acknowledgement to unauthenticated (route_mapping={route})")
         
         correlation_id = uuid4().bytes
-        print(route)
         relevant_route = route
         
         if isinstance(route, str):
@@ -251,9 +250,10 @@ class SessionDriver:
           - propagate terminal errors by finishing the Task with an exception
           - complete `responder` on orderly close
         """
-        message = await self.messages.get()        
-        responder.on_next(message)
-    
+        while self.is_authenticated:
+            message = await self.messages.get()
+            responder.on_next(message)
+
     async def close(self):
         """
         Closes the connection from server-side between the client.
@@ -303,6 +303,7 @@ class SessionDriver:
             
             else:
                 if self.is_authenticated:
+                    self.logger.debug("cyan]ATTP[/] ┆ Handing incoming message to a route handler.")
                     self.messages.put_nowait(event)
 
     async def start_listener(self):

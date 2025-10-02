@@ -1,12 +1,18 @@
 import asyncio
+from functools import cached_property
 from logging import Logger, getLogger
 from typing import Any, Callable, Literal
 from attp_core.rs_api import AttpClientSession, Limits
 from reactivex import Subject
 from attp_core.rs_api import PyAttpMessage
 
+from attp_client.catalog import AttpCatalog
+from attp_client.inference import AttpInferenceAPI
+from attp_client.interfaces.catalogs.catalog import ICatalogResponse
+from attp_client.misc.serializable import Serializable
 from attp_client.router import AttpRouter
 from attp_client.session import SessionDriver
+from attp_client.tools import ToolsManager
 from attp_client.types.route_mapping import AttpRouteMapping, RouteType
 
 class ATTPClient:
@@ -15,6 +21,7 @@ class ATTPClient:
     client: AttpClientSession
     session: SessionDriver | None
     routes: list[AttpRouteMapping]
+    inference: AttpInferenceAPI
     
     def __init__(
         self,
@@ -33,7 +40,7 @@ class ATTPClient:
         self.client = AttpClientSession(self.connection_url)
         self.session = None
         self.max_retries = max_retries
-        self.limits = limits or Limits(max_payload_size=2000)
+        self.limits = limits or Limits(max_payload_size=50000)
         self.logger = logger
         
         self.route_increment_index = 2
@@ -61,7 +68,28 @@ class ATTPClient:
         asyncio.create_task(self.session.listen(self.responder))
         
         self.router = AttpRouter(self.responder, self.session)
+        self.inference = AttpInferenceAPI(self.router)
 
+    async def close(self):
+        if self.session:
+            await self.session.close()
+            self.session = None
+            self.is_connected = False
+
+    @cached_property
+    def tools(self):
+        return ToolsManager(self.router)
+    
+    async def catalog(self, catalog_name: str):
+        catalog = await self.router.send(
+            "tools:catalogs:specific", 
+            Serializable[dict[str, str]]({"catalog_name": catalog_name}),
+            timeout=10,
+            expected_response=ICatalogResponse
+        )
+        
+        return AttpCatalog(id=catalog.catalog_id, catalog_name=catalog_name, manager=self.tools)
+    
     def add_event_handler(
         self, 
         pattern: str, 
