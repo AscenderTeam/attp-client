@@ -18,6 +18,40 @@ class AttpInferenceAPI:
         self.router = router
         self.logger = logger
     
+    async def create_chat(
+        self,
+        name: str,
+        agent_id: int | None = None,
+        agent_name: str | None = None,
+        mode: str = "agent_autopilot",
+        platform: str = "unknown",
+        responsible: int | None = None,
+        client_id: str | None = None,
+        created_by_id: int | None = None,
+        timeout: float = 30
+    ):
+        """
+        Create chat for inference.
+        TODO: Implement own chat manager for chats, just like I did with catalogs.
+        """
+        response = await self.router.send(
+            "messages:chat:create",
+            Serializable[dict[str, Any]]({
+                "name": name,
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "mode": mode,
+                "platform": platform,
+                "responsible": responsible,
+                "client_id": client_id,
+                "created_by_id": created_by_id
+            }),
+            timeout=timeout,
+            expected_response=dict[str, Any]
+        )
+        
+        return response
+    
     async def invoke_inference(
         self,
         agent_id: int | None = None,
