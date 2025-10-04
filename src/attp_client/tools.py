@@ -51,7 +51,7 @@ class ToolsManager:
         tool_id: str | Sequence[str]
     ) -> str | list[str]:
         response = await self.router.send(
-            "tool:unregister",
+            "tools:unregister",
             Serializable[dict[str, Any]]({
                 "catalog": catalog_name,
                 "tool_id": tool_id
