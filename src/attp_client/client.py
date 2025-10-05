@@ -1,7 +1,7 @@
 import asyncio
 from functools import cached_property
 from logging import Logger, getLogger
-from typing import Any, Callable, Literal
+from typing import Any, Callable
 from attp_core.rs_api import AttpClientSession, Limits
 from reactivex import Subject
 from attp_core.rs_api import PyAttpMessage
@@ -22,7 +22,8 @@ class ATTPClient:
     session: SessionDriver | None
     routes: list[AttpRouteMapping]
     inference: AttpInferenceAPI
-    
+    catalogs: list[AttpCatalog]
+
     def __init__(
         self,
         agt_token: str,
@@ -37,20 +38,21 @@ class ATTPClient:
         self.organization_id = organization_id
         self.connection_url = connection_url or "attp://localhost:6563"
         
-        self.client = AttpClientSession(self.connection_url)
         self.session = None
         self.max_retries = max_retries
         self.limits = limits or Limits(max_payload_size=50000)
+        self.client = AttpClientSession(self.connection_url, limits=self.limits)
         self.logger = logger
         
         self.route_increment_index = 2
         
         self.responder = Subject[PyAttpMessage]()
         self.routes = []
+        self.catalogs = []
     
     async def connect(self):
         # Open the connection
-        client = await self.client.connect(self.max_retries, self.limits)
+        client = await self.client.connect(self.max_retries)
         
         if not client.session:
             raise ConnectionError("Failed to connect to ATTP server after 10 attempts!")
@@ -81,15 +83,27 @@ class ATTPClient:
         return ToolsManager(self.router)
     
     async def catalog(self, catalog_name: str):
+        if any(c.catalog_name == catalog_name for c in self.catalogs):
+            return next(c for c in self.catalogs if c.catalog_name == catalog_name)
+        
         catalog = await self.router.send(
             "tools:catalogs:specific", 
             Serializable[dict[str, str]]({"catalog_name": catalog_name}),
             timeout=10,
             expected_response=ICatalogResponse
         )
+        self.catalogs.append(
+            AttpCatalog(id=catalog.catalog_id, catalog_name=catalog_name, manager=self.tools)
+        )
         
-        return AttpCatalog(id=catalog.catalog_id, catalog_name=catalog_name, manager=self.tools)
-    
+        await self.catalogs[-1].start_tool_listener()
+
+        return self.catalogs[-1] # Return the newly added catalog
+
+    async def close_catalog(self, catalog: AttpCatalog):
+        await catalog.stop_tool_listener()
+        self.catalogs.remove(catalog)
+
     def add_event_handler(
         self, 
         pattern: str, 

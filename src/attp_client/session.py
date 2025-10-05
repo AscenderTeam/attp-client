@@ -310,6 +310,7 @@ class SessionDriver:
         if not self.session:
             raise DeadSessionError(self.organization_id)
         self.session.add_event_handler(self._on_event)
+        
         await asyncio.gather(
             self.session.start_handler(),
             self.session.start_listener()

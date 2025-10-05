@@ -28,6 +28,7 @@ class AttpCatalog:
         self.tool_manager = manager
         self.attached_tools = {}
         self.tool_name_to_id_symlink = {}
+        self.disposable = None
         
         self.responder = self.tool_manager.router.responder
     
@@ -59,13 +60,19 @@ class AttpCatalog:
             from reactivex import empty
             return empty()
 
-        self.responder.pipe(
-            ops.filter(lambda item: item.payload is not None and item.correlation_id == 1),
+        self.disposable = self.responder.pipe(
+            ops.filter(lambda item: item.payload is not None and item.route_id == 2),
             ops.map(lambda item: envelopize(item)),
             ops.catch(catch_handler),
             ops.filter(lambda item: item.catalog == self.catalog_name and item.tool_id in self.attached_tools),
             ops.observe_on(scheduler),
         ).subscribe(lambda item: handle_call(item))
+    
+    async def stop_tool_listener(self):
+        await self.detach_all_tools()
+        if self.disposable:
+            self.disposable.dispose()
+            self.disposable = None
     
     async def attach_tool(
         self,
