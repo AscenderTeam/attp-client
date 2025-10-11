@@ -68,12 +68,12 @@ class AttpCatalog:
             ops.observe_on(scheduler),
         ).subscribe(lambda item: handle_call(item))
     
-    async def stop_tool_listener(self):
-        await self.detach_all_tools()
-        if self.disposable:
-            self.disposable.dispose()
-            self.disposable = None
-    
+    async def handle_callback(self, envelope: IEnvelope) -> Any:
+        if envelope.tool_id not in self.attached_tools:
+            raise NotFoundError(f"Tool {envelope.tool_id} not marked as registered and wasn't found in the catalog {self.catalog_name}.")
+
+        return await self.handle_call(envelope)
+
     async def attach_tool(
         self,
         callback: Callable[[IEnvelope], Any],

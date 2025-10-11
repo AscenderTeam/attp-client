@@ -3,17 +3,23 @@ from functools import cached_property
 from logging import Logger, getLogger
 from typing import Any, Callable
 from attp_core.rs_api import AttpClientSession, Limits
-from reactivex import Subject
+from reactivex import Subject, operators as ops
+from reactivex.scheduler.eventloop import AsyncIOScheduler
 from attp_core.rs_api import PyAttpMessage
 
 from attp_client.catalog import AttpCatalog
+from attp_client.errors.dead_session import DeadSessionError
 from attp_client.inference import AttpInferenceAPI
 from attp_client.interfaces.catalogs.catalog import ICatalogResponse
+from attp_client.interfaces.error import IErr
 from attp_client.misc.serializable import Serializable
 from attp_client.router import AttpRouter
 from attp_client.session import SessionDriver
 from attp_client.tools import ToolsManager
 from attp_client.types.route_mapping import AttpRouteMapping, RouteType
+from attp_client.utils import envelopizer
+
+from attp_core.rs_api import AttpCommand
 
 class ATTPClient:
     
@@ -49,6 +55,7 @@ class ATTPClient:
         self.responder = Subject[PyAttpMessage]()
         self.routes = []
         self.catalogs = []
+        self.disposable = None
     
     async def connect(self):
         # Open the connection
@@ -71,6 +78,17 @@ class ATTPClient:
         
         self.router = AttpRouter(self.responder, self.session)
         self.inference = AttpInferenceAPI(self.router)
+        
+        self.add_event_handler("tools:call", "message", self._tool_callback)
+        
+        
+        
+        self.disposable = self.responder.pipe(
+            ops.subscribe_on(AsyncIOScheduler(asyncio.get_event_loop())),
+        ).subscribe(
+            on_next=lambda item: self.logger.debug(f"Received message on route {item.route_id} with correlation ID {item.correlation_id}"),
+            on_error=lambda e: self.logger.error(f"Error in responder stream: {e}"),
+        )
 
     async def close(self):
         if self.session:
@@ -101,9 +119,65 @@ class ATTPClient:
         return self.catalogs[-1] # Return the newly added catalog
 
     async def close_catalog(self, catalog: AttpCatalog):
-        await catalog.stop_tool_listener()
+        await catalog.detach_all_tools()
         self.catalogs.remove(catalog)
 
+    async def _tool_callback(self, message: PyAttpMessage):
+        if not self.session:
+            raise DeadSessionError(self.organization_id)
+        
+        if not message.correlation_id:
+            await self.session.send_error(IErr(
+                detail={"message": "Correlation ID was missing in the message.", "code": "MissingCorrelationId"},
+            ))
+            return
+        
+        print("TOOL CALLBACK MESSAGE:", message.payload)
+        try:
+            envelope = envelopizer.envelopize(message)
+        except ValueError as e:
+            await self.session.send_error(IErr(
+                detail={"message": str(e), "code": "InvalidPayload"},
+            ))
+            return
+
+        catalog = next((c for c in self.catalogs if c.id == envelope.tool_id), None)
+        if not catalog:
+            await self.session.send_error(IErr(
+                detail={"message": f"Catalog with id {envelope.tool_id} not found.", "code": "NotFoundError"},
+            ))
+            return
+
+        response = await catalog.handle_callback(envelope)
+
+        await self.session.respond(route=message.route_id, correlation_id=message.correlation_id, payload=response)
+
+    async def _handle_incoming(self, message: PyAttpMessage):
+        relevant_route = next((route for route in self.routes if route.route_id == message.route_id), None)
+        
+        if not relevant_route:
+            if self.logger:
+                self.logger.warning(f"Received message for unknown route ID {message.route_id}. Ignoring.")
+            return
+        
+        response = await relevant_route.callback(message)
+        
+        if message.command_type == AttpCommand.CALL:
+            if not self.session:
+                raise DeadSessionError(self.organization_id)
+            
+            if not message.correlation_id:
+                await self.session.send_error(IErr(
+                    detail={"message": "Correlation ID was missing in the message.", "code": "MissingCorrelationId"},
+                ))
+                return
+            
+            await self.session.respond(
+                route=message.route_id,
+                correlation_id=message.correlation_id,
+                payload=response
+            )
+    
     def add_event_handler(
         self, 
         pattern: str, 

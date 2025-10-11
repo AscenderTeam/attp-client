@@ -215,7 +215,7 @@ class SessionDriver:
             )
         )
     
-    async def respond(self, correlation_id: bytes, payload: FixedBaseModel | Any | None = None):
+    async def respond(self, route: int | str, correlation_id: bytes, payload: FixedBaseModel | Serializable | Any | None = None):
         """
         For responding to `AttpCommand.CALL`. Used only for correlated requests.
         It sends response (acknowledgement) message signed as `AttpCommand.ACK` to the request.
@@ -227,8 +227,16 @@ class SessionDriver:
         payload : FixedBaseModel | Serializable | None, optional
             Response payload, the data that will be sent, by default None
         """
+        relevant_route = route
+
+        if not self.server_routes:
+            raise UnauthenticatedError(f"Cannot send an ATTP message with acknowledgement to unauthenticated (route_mapping={route})")
+        
+        if isinstance(route, str):
+            relevant_route = resolve_route_by_id("message", route, self.server_routes).route_id
+
         frame = PyAttpMessage(
-            route_id=0,
+            route_id=int(relevant_route),
             command_type=AttpCommand.ACK,
             correlation_id=correlation_id,
             payload=serializer.deserialize(payload),
