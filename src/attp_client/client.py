@@ -21,6 +21,8 @@ from attp_client.utils import envelopizer
 
 from attp_core.rs_api import AttpCommand
 
+from attp_client.utils.trigger_callable import trigger_callable
+
 class ATTPClient:
     
     is_connected: bool
@@ -48,7 +50,7 @@ class ATTPClient:
         self.max_retries = max_retries
         self.limits = limits or Limits(max_payload_size=50000)
         self.client = AttpClientSession(self.connection_url, limits=self.limits)
-        self.logger = logger
+        self.logger = logger or getLogger("Ascender Framework")
         
         self.route_increment_index = 2
         
@@ -73,25 +75,26 @@ class ATTPClient:
         )
         asyncio.create_task(self.session.start_listener())
         # Send an authentication frame as soon as connection estabilishes with agenthub
+        self.add_event_handler("tools:call", "message", self._tool_callback)
+        
         await self.session.authenticate(self.routes)
         asyncio.create_task(self.session.listen(self.responder))
         
         self.router = AttpRouter(self.responder, self.session)
         self.inference = AttpInferenceAPI(self.router)
         
-        self.add_event_handler("tools:call", "message", self._tool_callback)
-        
-        
-        
         self.disposable = self.responder.pipe(
             ops.subscribe_on(AsyncIOScheduler(asyncio.get_event_loop())),
         ).subscribe(
-            on_next=lambda item: self.logger.debug(f"Received message on route {item.route_id} with correlation ID {item.correlation_id}"),
+            on_next=lambda item: trigger_callable(self._handle_incoming, (item,)),
             on_error=lambda e: self.logger.error(f"Error in responder stream: {e}"),
         )
 
     async def close(self):
         if self.session:
+            if self.disposable:
+                self.disposable.dispose()
+            
             await self.session.close()
             self.session = None
             self.is_connected = False
