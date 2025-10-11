@@ -1,6 +1,6 @@
 [project]
 name = "attp-client"
-version = "0.0.13"
+version = "0.0.14"
 description = "A python-sdk client for interacting with AgentHub's ATTP protocol (Agent Tool Transport Protocol)"
 authors = [
     {name = "Ascender Team"}

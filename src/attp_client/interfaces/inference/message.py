@@ -34,7 +34,7 @@ class IMessageDTOV2(FixedBaseModel):
     tool_error_detail: str | None = None
 
     specialist_required: MessageEmergencyTypeEnum | None = None
-    metadata: dict[str, Any] | None = None
+    meta: dict[str, str] | None = None # key, value (key is string, value is JSON string, None as value should be 'null' in JSON)
 
     def to_wrap(self) -> dict:
         w = self.model_dump()
