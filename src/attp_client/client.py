@@ -12,6 +12,7 @@ from attp_client.errors.dead_session import DeadSessionError
 from attp_client.inference import AttpInferenceAPI
 from attp_client.interfaces.catalogs.catalog import ICatalogResponse
 from attp_client.interfaces.error import IErr
+from attp_client.misc.fixed_basemodel import FixedBaseModel
 from attp_client.misc.serializable import Serializable
 from attp_client.router import AttpRouter
 from attp_client.session import SessionDriver
@@ -132,7 +133,7 @@ class ATTPClient:
         if not message.correlation_id:
             await self.session.send_error(IErr(
                 detail={"message": "Correlation ID was missing in the message.", "code": "MissingCorrelationId"},
-            ))
+            ), route=message.route_id)
             return
         
         print("TOOL CALLBACK MESSAGE:", message.payload)
@@ -141,17 +142,20 @@ class ATTPClient:
         except ValueError as e:
             await self.session.send_error(IErr(
                 detail={"message": str(e), "code": "InvalidPayload"},
-            ))
+            ), correlation_id=message.correlation_id, route=message.route_id)
             return
 
-        catalog = next((c for c in self.catalogs if c.id == envelope.tool_id), None)
+        catalog = next((c for c in self.catalogs if c.catalog_name == envelope.catalog), None)
         if not catalog:
             await self.session.send_error(IErr(
-                detail={"message": f"Catalog with id {envelope.tool_id} not found.", "code": "NotFoundError"},
-            ))
+                detail={"message": f"Catalog with name {envelope.catalog} not found.", "code": "NotFoundError"},
+            ), route=message.route_id, correlation_id=message.correlation_id)
             return
 
         response = await catalog.handle_callback(envelope)
+
+        if not isinstance(response, FixedBaseModel) and not isinstance(response, Serializable):
+            response = Serializable[Any](response)
 
         await self.session.respond(route=message.route_id, correlation_id=message.correlation_id, payload=response)
 
@@ -172,7 +176,7 @@ class ATTPClient:
             if not message.correlation_id:
                 await self.session.send_error(IErr(
                     detail={"message": "Correlation ID was missing in the message.", "code": "MissingCorrelationId"},
-                ))
+                ), route=message.route_id)
                 return
             
             await self.session.respond(
