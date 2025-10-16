@@ -14,6 +14,8 @@ from attp_client.interfaces.catalogs.catalog import ICatalogResponse
 from attp_client.interfaces.error import IErr
 from attp_client.misc.fixed_basemodel import FixedBaseModel
 from attp_client.misc.serializable import Serializable
+from attp_client.objects.agents import AttpAgents
+from attp_client.objects.chats import AttpChats
 from attp_client.router import AttpRouter
 from attp_client.session import SessionDriver
 from attp_client.tools import ToolsManager
@@ -23,6 +25,7 @@ from attp_client.utils import envelopizer
 from attp_core.rs_api import AttpCommand
 
 from attp_client.utils.trigger_callable import trigger_callable
+
 
 class ATTPClient:
     
@@ -83,6 +86,8 @@ class ATTPClient:
         
         self.router = AttpRouter(self.responder, self.session)
         self.inference = AttpInferenceAPI(self.router)
+        self.chats = AttpChats(self.router)
+        self.agents = AttpAgents(self.router)
         
         self.disposable = self.responder.pipe(
             ops.subscribe_on(AsyncIOScheduler(asyncio.get_event_loop())),

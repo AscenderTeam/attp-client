@@ -10,6 +10,7 @@ client = ATTPClient(
 
 async def main():
     await client.connect()
+    
     # await client.router.emit("messages:append")
     # response = await client.router.send("messages:inference:invoke", Serializable[dict[str, Any]]({
     #     "agent_id": 17,
@@ -26,6 +27,7 @@ async def main():
         catalogs.append(catalog)
 
     print(await asyncio.gather(*catalogs))
+    
     
     # tool = await catalog.attach_tool(lambda e: print("EVENT:", e), "tools.test")
     # print("TOOL UUID:", tool)
