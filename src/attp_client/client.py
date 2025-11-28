@@ -122,8 +122,6 @@ class ATTPClient:
         self.catalogs.append(
             AttpCatalog(id=catalog.catalog_id, catalog_name=catalog_name, manager=self.tools)
         )
-        
-        await self.catalogs[-1].start_tool_listener()
 
         return self.catalogs[-1] # Return the newly added catalog
 

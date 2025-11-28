@@ -1,16 +1,8 @@
-import asyncio
 from typing import Any, Callable, MutableMapping
 
-from attp_client.errors.attp_exception import AttpException
 from attp_client.errors.not_found import NotFoundError
 from attp_client.interfaces.catalogs.tools.envelope import IEnvelope
-from attp_client.interfaces.error import IErr
 from attp_client.tools import ToolsManager
-
-from reactivex import operators as ops
-from reactivex.scheduler.eventloop import AsyncIOScheduler
-
-from attp_core.rs_api import PyAttpMessage
 
 
 class AttpCatalog:
@@ -28,45 +20,6 @@ class AttpCatalog:
         self.tool_manager = manager
         self.attached_tools = {}
         self.tool_name_to_id_symlink = {}
-        self.disposable = None
-        
-        self.responder = self.tool_manager.router.responder
-    
-    async def start_tool_listener(self):
-        scheduler = AsyncIOScheduler(asyncio.get_event_loop())
-        
-        def handle_call(item: IEnvelope):
-            asyncio.create_task(self.handle_call(item))
-        
-        def send_err(err: AttpException):
-            asyncio.create_task(self.tool_manager.router.session.send_error(err=err.to_ierr(), correlation_id=None, route=1))
-        
-        def envelopize(item: PyAttpMessage):
-            if not item.payload:
-                raise AttpException("EmptyPayload", detail={"message": "Payload was empty."})
-            try:
-                return IEnvelope.mps(item.payload)
-            except Exception as e:
-                raise AttpException("InvalidPayload", detail={"message": f"Payload was invalid: {str(e)}"})
-
-        def catch_handler(err: Any, _: Any):
-            # Convert any exception to AttpException if needed
-            if not isinstance(err, AttpException):
-                attp_err = AttpException("UnhandledException", detail={"message": str(err)})
-            else:
-                attp_err = err
-            send_err(attp_err)
-            # Return an empty observable to terminate the stream after error
-            from reactivex import empty
-            return empty()
-
-        self.disposable = self.responder.pipe(
-            ops.filter(lambda item: item.payload is not None and item.route_id == 2),
-            ops.map(lambda item: envelopize(item)),
-            ops.catch(catch_handler),
-            ops.filter(lambda item: item.catalog == self.catalog_name and item.tool_id in self.attached_tools),
-            ops.observe_on(scheduler),
-        ).subscribe(lambda item: handle_call(item))
     
     async def handle_callback(self, envelope: IEnvelope) -> Any:
         if envelope.tool_id not in self.attached_tools:
