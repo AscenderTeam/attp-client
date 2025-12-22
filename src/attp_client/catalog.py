@@ -1,4 +1,5 @@
 from typing import Any, Callable, MutableMapping
+from uuid import UUID
 
 from attp_client.errors.not_found import NotFoundError
 from attp_client.interfaces.catalogs.tools.envelope import IEnvelope
@@ -27,7 +28,7 @@ class AttpCatalog:
 
         return await self.handle_call(envelope)
 
-    async def attach_tool(
+    def attach_tool(
         self,
         callback: Callable[[IEnvelope], Any],
         name: str, 
@@ -40,7 +41,7 @@ class AttpCatalog:
         timeout_ms: float = 20000,
         idempotent: bool = False
     ):
-        assigned_id = await self.tool_manager.register(
+        assigned_id = self.tool_manager.register(
             self.catalog_name,
             name=name,
             description=description,
@@ -56,7 +57,7 @@ class AttpCatalog:
         self.tool_name_to_id_symlink[name] = str(assigned_id)
         return assigned_id
     
-    async def detach_tool(
+    def detach_tool(
         self,
         name: str
     ):
@@ -65,12 +66,12 @@ class AttpCatalog:
         if not tool_id:
             raise NotFoundError(f"Tool {name} not marked as registered and wasn't found in the catalog {self.catalog_name}.")
         
-        await self.tool_manager.unregister(self.catalog_name, tool_id)
+        self.tool_manager.unregister(self.catalog_name, UUID(tool_id))
         return tool_id
     
-    async def detach_all_tools(self):
+    def detach_all_tools(self):
         for tool_id in list(self.attached_tools.keys()):
-            await self.tool_manager.unregister(self.catalog_name, tool_id)
+            self.tool_manager.unregister(self.catalog_name, UUID(tool_id))
             del self.attached_tools[tool_id]
         
         self.tool_name_to_id_symlink.clear()

@@ -24,6 +24,7 @@ from attp_client.utils import envelopizer
 
 from attp_core.rs_api import AttpCommand
 
+from attp_client.utils.stream_object import StreamObject
 from attp_client.utils.trigger_callable import trigger_callable
 
 
@@ -35,6 +36,8 @@ class ATTPClient:
     routes: list[AttpRouteMapping]
     inference: AttpInferenceAPI
     catalogs: list[AttpCatalog]
+
+    _tools: ToolsManager | None
 
     def __init__(
         self,
@@ -62,6 +65,8 @@ class ATTPClient:
         self.routes = []
         self.catalogs = []
         self.disposable = None
+        
+        self._tools = None
     
     async def connect(self):
         # Open the connection
@@ -80,6 +85,7 @@ class ATTPClient:
         asyncio.create_task(self.session.start_listener())
         # Send an authentication frame as soon as connection estabilishes with agenthub
         self.add_event_handler("tools:call", "message", self._tool_callback)
+        self.add_event_handler("catalogs:tools:list", "message", self._tool_callback)
         
         await self.session.authenticate(self.routes)
         asyncio.create_task(self.session.listen(self.responder))
@@ -105,9 +111,12 @@ class ATTPClient:
             self.session = None
             self.is_connected = False
 
-    @cached_property
+    @property
     def tools(self):
-        return ToolsManager(self.router)
+        if not self._tools:
+            self._tools = ToolsManager(self.router)
+        
+        return self._tools
     
     async def catalog(self, catalog_name: str):
         if any(c.catalog_name == catalog_name for c in self.catalogs):
@@ -126,7 +135,7 @@ class ATTPClient:
         return self.catalogs[-1] # Return the newly added catalog
 
     async def close_catalog(self, catalog: AttpCatalog):
-        await catalog.detach_all_tools()
+        catalog.detach_all_tools()
         self.catalogs.remove(catalog)
 
     async def _tool_callback(self, message: PyAttpMessage):
@@ -162,6 +171,30 @@ class ATTPClient:
 
         await self.session.respond(route=message.route_id, correlation_id=message.correlation_id, payload=response)
 
+    async def _list_tools(self, message: PyAttpMessage):
+        if not self.session:
+            raise DeadSessionError(self.organization_id)
+        
+        if not message.payload:
+            await self.session.send_error(IErr(
+                detail={"message": "Payload was missing in the message.", "code": "MissingPayload"},
+            ), route=message.route_id)
+            return
+        
+        deserialized = Serializable[dict[str, Any]].mps(message.payload)
+        
+        if deserialized.data.get("catalog_name") is None:
+            await self.session.send_error(IErr(
+                detail={"message": "Catalog name was missing in the payload.", "code": "MissingCatalogName"},
+            ), route=message.route_id, correlation_id=message.correlation_id)
+            return
+        catalog_name = deserialized.data["catalog_name"]
+        tools = self.tools.get_tools(catalog_name=catalog_name)
+        
+        return Serializable[dict[str, Any]]({
+            "tools": [tool.model_dump(mode="json") for tool in tools]
+        })
+    
     async def _handle_incoming(self, message: PyAttpMessage):
         relevant_route = next((route for route in self.routes if route.route_id == message.route_id), None)
         
@@ -181,7 +214,25 @@ class ATTPClient:
                     detail={"message": "Correlation ID was missing in the message.", "code": "MissingCorrelationId"},
                 ), route=message.route_id)
                 return
-            
+            if isinstance(response, StreamObject):
+                iterator = response.iterate()
+                if not iterator:
+                    return
+                if response.is_async:
+                    async for chunk in iterator: # type: ignore
+                        await self.session.respond(
+                            route=message.route_id,
+                            correlation_id=message.correlation_id,
+                            payload=chunk
+                        )
+                else:
+                    for chunk in iterator: # type: ignore
+                        await self.session.respond(
+                            route=message.route_id,
+                            correlation_id=message.correlation_id,
+                            payload=chunk
+                        )
+                
             await self.session.respond(
                 route=message.route_id,
                 correlation_id=message.correlation_id,
