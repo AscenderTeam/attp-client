@@ -1,7 +1,7 @@
 import asyncio
 from logging import Logger, getLogger
 import traceback
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 from uuid import uuid4
 
 from reactivex import Subject
@@ -15,12 +15,13 @@ from attp_client.interfaces.handshake.hello import IHello
 from attp_client.interfaces.handshake.ready import IReady
 from attp_client.interfaces.route_mappings import IRouteMapping
 from attp_client.misc.fixed_basemodel import FixedBaseModel
-from attp_core.rs_api import Session, PyAttpMessage, AttpCommand
+from attp_core.rs_api import Session, PyAttpMessage, AttpCommand, AttpClientSession
 
 from attp_client.misc.serializable import Serializable
 from attp_client.types.route_mapping import AttpRouteMapping
 from attp_client.utils import serializer
 from attp_client.utils.route_mapper import resolve_route_by_id
+
 
 
 class SessionDriver:
@@ -33,10 +34,14 @@ class SessionDriver:
         agt_token: str,
         organization_id: int,
         *,
+        factory: AttpClientSession,
+        on_reconnect: Callable[[], Any] | None = None,
         # route_mappings: Sequence[AttpRouteMapping],
         logger: Logger = getLogger("Ascender Framework"),
     ) -> None:
         self.agt_token = agt_token
+        self.on_reconnect = on_reconnect
+        self.factory = factory
         self.session = session
         self._organization_id = organization_id
         self.server_routes = None
@@ -116,10 +121,10 @@ class SessionDriver:
         if isinstance(route, str):
             relevant_route = resolve_route_by_id("message", route, self.server_routes).route_id
         
-        print("RELEVANT ROUTE", relevant_route)
+        # print("RELEVANT ROUTE", relevant_route)
         
         frame = PyAttpMessage(int(relevant_route), AttpCommand.CALL, correlation_id=correlation_id, payload=data.mpd() if data is not None else None, version=ATTP_VERSION)
-        print(frame.payload)
+        # print(frame.payload)
         await self.send_raw(frame)
         
         return correlation_id
@@ -245,6 +250,37 @@ class SessionDriver:
         
         await self.send_raw(frame)
 
+    async def respond_stream(
+        self,
+        route: int | str,
+        correlation_id: bytes,
+        *,
+        payload: FixedBaseModel | Serializable | Any | None = None,
+        command_type: AttpCommand,
+    ):
+        """
+        Send a streaming response frame (STREAMBOS/CHUNK/STREAMEOS) for a correlated request.
+        """
+        relevant_route = route
+
+        if not self.server_routes:
+            raise UnauthenticatedError(
+                f"Cannot send an ATTP stream message to unauthenticated session (route_mapping={route})"
+            )
+
+        if isinstance(route, str):
+            relevant_route = resolve_route_by_id("message", route, self.server_routes).route_id
+
+        frame = PyAttpMessage(
+            route_id=int(relevant_route),
+            command_type=command_type,
+            correlation_id=correlation_id,
+            payload=serializer.deserialize(payload),
+            version=ATTP_VERSION,
+        )
+
+        await self.send_raw(frame)
+
     async def listen(self, responder: Subject[PyAttpMessage]) -> None:
         """
         Start a background read-loop task that:
@@ -275,7 +311,6 @@ class SessionDriver:
         ))
         self.session.stop_listener()
         self.session.disconnect()
-        del self.session
     
     async def handle_ready(self, frame: IReady):
         self.server_routes = frame.server_routes
@@ -309,6 +344,19 @@ class SessionDriver:
                     await self.close()
                     break
             
+            if event.command_type == AttpCommand.DISCONNECT:
+                self.messages.put_nowait(event)
+                self.logger.info(f"[cyan]ATTP[/] ┆ Session {self.session_id} disconnected by the server.")
+                await self.close()
+                
+                if self.on_reconnect:
+                    self.logger.info(f"[cyan]ATTP[/] ┆ Attempting to reconnect session for organization {self.organization_id}...")
+                    try:
+                        await self.on_reconnect()
+                        self.logger.info(f"[cyan]ATTP[/] ┆ Successfully reconnected session for organization {self.organization_id}.")
+                    except Exception as e:
+                        traceback.print_exc()
+                        self.logger.error(f"[cyan]ATTP[/] ┆ Failed to reconnect session for organization {self.organization_id}: {e}")
             else:
                 if self.is_authenticated:
                     self.logger.debug("[cyan]ATTP[/] ┆ Handing incoming message to a route handler.")

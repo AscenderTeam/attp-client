@@ -8,6 +8,7 @@ from reactivex.scheduler.eventloop import AsyncIOScheduler
 from attp_core.rs_api import PyAttpMessage, AttpCommand
 
 from attp_client.errors.correlated_rpc_exception import CorrelatedRPCException
+from attp_client.errors.dead_session import DeadSessionError
 from attp_client.errors.serialization_error import SerializationError
 from attp_client.interfaces.error import IErr
 from attp_client.misc.fixed_basemodel import FixedBaseModel
@@ -30,6 +31,10 @@ class AttpRouter:
         self.responder = responder
         self.session = session
         self.context = ContextVar[str | None]("session_context", default=None)
+    
+    def convert_message(self, expected_type: type[T], message: PyAttpMessage) -> T | Any:
+        response = self.__format_response(expected_type=expected_type, response_data=message)
+        return response
     
     @overload
     async def send(
@@ -55,6 +60,8 @@ class AttpRouter:
         timeout: float = 50, *,
         expected_response: type[T] | None = None
     ) -> T | Any:
+        if not self.session.is_connected:
+            raise DeadSessionError(self.session.organization_id)
         # correlation_id = await self.session.send_message(pattern, data)
         
         responder = ContextAwaiter[Any](defer(
@@ -101,15 +108,14 @@ class AttpRouter:
         *,
         formatter: Callable[[PyAttpMessage], S | None] | None = None,
     ) -> AsyncIterable[Any] | AsyncIterable[S]:
+        if not self.session.is_connected:
+            raise DeadSessionError(self.session.organization_id)
+        
         stream = StreamReceiver(
-            defer(
-                lambda _: (
-                    from_future(asyncio.ensure_future(self.session.send_message(route=route, data=data))).pipe(
-                        ops.flat_map(
-                            lambda cid: empty().pipe(
-                                ops.concat(self.__stream_pipe_filter(cid, timeout=timeout)),
-                            )
-                        )
+            from_future(asyncio.ensure_future(self.session.send_message(route=route, data=data))).pipe(
+                ops.flat_map(
+                    lambda cid: empty().pipe(
+                        ops.concat(self.__stream_pipe_filter(cid, timeout=timeout)),
                     )
                 )
             ),
@@ -120,12 +126,15 @@ class AttpRouter:
         
     
     async def emit(self, route: str, data: FixedBaseModel | Serializable | None = None):
+        if not self.session.is_connected:
+            raise DeadSessionError(self.session.organization_id)
+        
         await self.session.emit_message(route, data)
     
     def __pipe_filter(self, awaiting_correlation_id: bytes, timeout: float):
         loop = asyncio.get_event_loop()
         asyncio_scheduler = AsyncIOScheduler(loop)
-        print(awaiting_correlation_id)
+        # print(awaiting_correlation_id)
         return self.responder.pipe(
             ops.subscribe_on(asyncio_scheduler),
             ops.filter(lambda pair: pair.correlation_id == awaiting_correlation_id),
@@ -140,11 +149,7 @@ class AttpRouter:
                 ),
                 throw(TimeoutError("ATTP response failed."))
             ),
-            ops.filter(lambda pair: pair.command_type == AttpCommand.ACK or pair.command_type in (
-                AttpCommand.STREAMBOS,
-                AttpCommand.CHUNK,
-                AttpCommand.STREAMEOS,
-            )),
+            ops.filter(lambda pair: pair.command_type == AttpCommand.ACK),
             ops.first(),
         )
 
@@ -158,13 +163,13 @@ class AttpRouter:
             #######################################
             ##     This is RPC Defer Handler     ##
             #######################################
-            ops.timeout_with_mapper(
-                timer(timeout, scheduler=asyncio_scheduler),
-                lambda i: (
-                    timer(timeout, scheduler=asyncio_scheduler) if getattr(i, "frame_type", None) == AttpCommand.DEFER else of(None)
-                ),
-                throw(TimeoutError("ATTP stream failed."))
-            ),
+            # ops.timeout_with_mapper(
+            #     timer(timeout, scheduler=asyncio_scheduler),
+            #     lambda i: (
+            #         timer(timeout, scheduler=asyncio_scheduler) if getattr(i, "frame_type", None) == AttpCommand.DEFER else of(None)
+            #     ),
+            #     throw(TimeoutError("ATTP stream failed."))
+            # ),
             ops.filter(lambda pair: pair.command_type in (
                 AttpCommand.STREAMBOS,
                 AttpCommand.CHUNK,

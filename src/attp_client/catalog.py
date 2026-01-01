@@ -1,6 +1,7 @@
 from typing import Any, Callable, MutableMapping
 from uuid import UUID
 
+from attp_client.errors.attp_exception import AttpException
 from attp_client.errors.not_found import NotFoundError
 from attp_client.interfaces.catalogs.tools.envelope import IEnvelope
 from attp_client.tools import ToolsManager
@@ -26,7 +27,12 @@ class AttpCatalog:
         if envelope.tool_id not in self.attached_tools:
             raise NotFoundError(f"Tool {envelope.tool_id} not marked as registered and wasn't found in the catalog {self.catalog_name}.")
 
-        return await self.handle_call(envelope)
+        try:
+            result = await self.handle_call(envelope)
+        except AttpException as e:
+            return e.to_ierr()
+        
+        return result
 
     def attach_tool(
         self,

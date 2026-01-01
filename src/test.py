@@ -1,11 +1,16 @@
 import asyncio
+from uuid import UUID
 from attp_client.client import ATTPClient
+from attp_client.interfaces.inference.enums.message_type import MessageTypeEnum
+from attp_client.interfaces.inference.message import IMessageDTOV2
+from attp_client.misc.serializable import Serializable
 
 
 client = ATTPClient(
     "agt_eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmdhbml6YXRpb25faWQiOjEsInBlcm1pc3Npb25zIjpbIioiXSwiZXhwaXJlc19hdF90aW1lc3RhbXAiOm51bGwsInV1aWQiOiIxZGRhMjUzMS1iYzk0LTRkNjQtODAwZS1kNzFiN2NiNzg0ZDQifQ.rbAqt3ZwJSPlX_nwJa2uLx6xhleEpRqE6vWWObaWsVI", 
     organization_id=1,
-    connection_url="attp://localhost:6563"
+    connection_url="attp://localhost:6563",
+    verbose=True
 )
 
 async def main():
@@ -20,15 +25,36 @@ async def main():
     # response = await client.router.send("", Serializable[dict[str, str]]({"asd": "Hello world!"}), timeout=20)
     
     # print("RESPONSE IS:", response)
-    catalogs = []
     
-    for i in range(50):    
-        catalog = asyncio.create_task(client.catalog(f"inference_{i}"))
-        catalogs.append(catalog)
-
-    print(await asyncio.gather(*catalogs))
+    # async def test_stream(task: int = 0):
+    #     iterable_response = await client.router.request_stream("streaming:test", Serializable[dict[str, str]]({
+    #         "message": "Hello world!"
+    #     }), timeout=1000)
+        
+    #     async for resp in iterable_response:
+    #         print(f"TASK {task} STREAM CHUNK:", resp)
     
+    # await asyncio.gather(
+    #     asyncio.create_task(test_stream(1)),
+    #     asyncio.create_task(test_stream(2))
+    # )
     
+    response_iterable = await client.inference.invoke_chat_inference(
+        [IMessageDTOV2(content="Hello!", message_type=MessageTypeEnum.CUSTOMER_MESSAGE, client_id="32b0413f-7ac3-4eed-ae68-8afe98415589", chat_id=UUID("32b0413f-7ac3-4eed-ae68-8afe98415589"))],
+        chat_id=UUID("32b0413f-7ac3-4eed-ae68-8afe98415589"),
+        stream=True,
+        timeout=100
+    )
+    last_response = None
+    async for resp in response_iterable:
+        if resp.meta:
+            if resp.meta.get("finished"):
+                last_response = resp
+                break
+        print(resp.content or " ", sep="", end="", flush=True)
+    
+    print("\nFINAL RESPONSE:", last_response)
+    print("\nFINAL METADATA: ", last_response.meta if last_response else None)
     # tool = await catalog.attach_tool(lambda e: print("EVENT:", e), "tools.test")
     # print("TOOL UUID:", tool)
     # response = await client.inference.invoke_chat_inference(

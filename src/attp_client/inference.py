@@ -1,5 +1,5 @@
 from logging import Logger, getLogger
-from typing import Any, Sequence
+from typing import Any, AsyncIterable, Literal, Sequence, overload
 from uuid import UUID
 from attp_client.interfaces.inference.message import IMessageResponse, IMessageDTOV2
 from attp_client.misc.serializable import Serializable
@@ -91,6 +91,30 @@ class AttpInferenceAPI:
         
         return response
     
+    @overload
+    async def invoke_inference(
+        self,
+        agent_id: int,
+        agent_name: str,
+        *,
+        input_configuration: dict[str, Any] | None = None,
+        messages: Sequence[IMessageDTOV2] | None = None,
+        stream: Literal[False] = False,
+        timeout: float = 200
+    ) -> IMessageResponse: ...
+    
+    @overload
+    async def invoke_inference(
+        self,
+        agent_id: int,
+        agent_name: str,
+        *,
+        input_configuration: dict[str, Any] | None = None,
+        messages: Sequence[IMessageDTOV2] | None = None,
+        stream: Literal[True] = True,
+        timeout: float = 200
+    ) -> AsyncIterable[IMessageResponse]: ...
+    
     async def invoke_inference(
         self,
         agent_id: int | None = None,
@@ -100,7 +124,7 @@ class AttpInferenceAPI:
         messages: Sequence[IMessageDTOV2] | None = None,
         stream: bool = False,
         timeout: float = 200
-    ) -> IMessageResponse:
+    ) -> IMessageResponse | AsyncIterable[IMessageResponse]:
         """
         Invoke inference for a specific agent by its ID or name.
     
@@ -139,6 +163,17 @@ class AttpInferenceAPI:
         if agent_id and agent_name:
             raise ValueError("Cannot find agent by two identification specifiers, use only one!")
         
+        if stream:
+            iterable_response = await self.router.request_stream("messages:inference:invoke", Serializable[dict[str, Any]]({
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "input_configuration": input_configuration,
+                "messages": [message.model_dump(mode="json") for message in (messages or [])],
+                "stream": stream
+            }), timeout=timeout, formatter=lambda x: self.router.convert_message(IMessageResponse, x))
+            
+            return iterable_response
+        
         response = await self.router.send("messages:inference:invoke", Serializable[dict[str, Any]]({
             "agent_id": agent_id,
             "agent_name": agent_name,
@@ -149,13 +184,31 @@ class AttpInferenceAPI:
         
         return response
     
+    @overload
+    async def invoke_chat_inference(
+        self,
+        messages: Sequence[IMessageDTOV2],
+        chat_id: UUID,
+        stream: Literal[False] = False,
+        timeout: float = 200
+    ) -> IMessageResponse: ...
+    
+    @overload
+    async def invoke_chat_inference(
+        self,
+        messages: Sequence[IMessageDTOV2],
+        chat_id: UUID,
+        stream: Literal[True] = True,
+        timeout: float = 200
+    ) -> AsyncIterable[IMessageResponse]: ...
+    
     async def invoke_chat_inference(
         self, 
         messages: Sequence[IMessageDTOV2], 
         chat_id: UUID,
         stream: bool = False,
         timeout: float = 200,
-    ) -> IMessageResponse:
+    ) -> IMessageResponse | AsyncIterable[IMessageDTOV2]:
         """
         Invoke inference for a specific chat by its chat_id.
 
@@ -177,6 +230,19 @@ class AttpInferenceAPI:
         """
         for message in messages:
             await self.router.send("messages:append", message, timeout=5)
+        
+        if stream:
+            iterable_response = await self.router.request_stream(
+                "messages:chat:invoke", 
+                Serializable[dict[str, Any]]({
+                    "chat_id": str(chat_id),
+                    "stream": stream
+                }),
+                timeout=timeout,
+                formatter=lambda x: self.router.convert_message(IMessageDTOV2, x) if x.payload else None
+            )
+            
+            return iterable_response
         
         response = await self.router.send(
             "messages:chat:invoke", 

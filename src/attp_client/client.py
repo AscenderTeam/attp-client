@@ -22,7 +22,7 @@ from attp_client.tools import ToolsManager
 from attp_client.types.route_mapping import AttpRouteMapping, RouteType
 from attp_client.utils import envelopizer
 
-from attp_core.rs_api import AttpCommand
+from attp_core.rs_api import AttpCommand, init_logging
 
 from attp_client.utils.stream_object import StreamObject
 from attp_client.utils.trigger_callable import trigger_callable
@@ -45,9 +45,11 @@ class ATTPClient:
         organization_id: int,
         *,
         connection_url: str | None = None,
+        reconnect: bool = False,
         max_retries: int = 20,
         limits: Limits | None = None,
-        logger: Logger | None = None
+        logger: Logger | None = None,
+        verbose: bool = False
     ):
         self.__agt_token = agt_token
         self.organization_id = organization_id
@@ -58,6 +60,7 @@ class ATTPClient:
         self.limits = limits or Limits(max_payload_size=50000)
         self.client = AttpClientSession(self.connection_url, limits=self.limits)
         self.logger = logger or getLogger("Ascender Framework")
+        self.reconnect = reconnect
         
         self.route_increment_index = 2
         
@@ -65,12 +68,18 @@ class ATTPClient:
         self.routes = []
         self.catalogs = []
         self.disposable = None
+        self._client = None
+        self.verbose = verbose
         
         self._tools = None
+        
+        if self.verbose:
+            init_logging()
     
     async def connect(self):
         # Open the connection
         client = await self.client.connect(self.max_retries)
+        self._client = client
         
         if not client.session:
             raise ConnectionError("Failed to connect to ATTP server after 10 attempts!")
@@ -80,12 +89,14 @@ class ATTPClient:
             agt_token=self.__agt_token, 
             organization_id=self.organization_id,
             # route_mappings=self.routes,
+            factory=self.client,
+            on_reconnect=self._reconnect if self.reconnect else None,
             logger=self.logger or getLogger("Ascender Framework")
         )
         asyncio.create_task(self.session.start_listener())
         # Send an authentication frame as soon as connection estabilishes with agenthub
         self.add_event_handler("tools:call", "message", self._tool_callback)
-        self.add_event_handler("catalogs:tools:list", "message", self._tool_callback)
+        self.add_event_handler("catalogs:tools:list", "message", self._list_tools)
         
         await self.session.authenticate(self.routes)
         asyncio.create_task(self.session.listen(self.responder))
@@ -101,13 +112,20 @@ class ATTPClient:
             on_next=lambda item: trigger_callable(self._handle_incoming, (item,)),
             on_error=lambda e: self.logger.error(f"Error in responder stream: {e}"),
         )
+    
+    async def _reconnect(self):
+        self.logger.info("Attempting to reconnect to ATTP server...")
+        await self.connect()
 
     async def close(self):
         if self.session:
+            self.session.on_reconnect = None
+            
             if self.disposable:
                 self.disposable.dispose()
             
             await self.session.close()
+            
             self.session = None
             self.is_connected = False
 
@@ -164,7 +182,12 @@ class ATTPClient:
             ), route=message.route_id, correlation_id=message.correlation_id)
             return
 
+        
         response = await catalog.handle_callback(envelope)
+        
+        if isinstance(response, IErr):
+            await self.session.send_error(response, route=message.route_id, correlation_id=message.correlation_id)
+            return
 
         if not isinstance(response, FixedBaseModel) and not isinstance(response, Serializable):
             response = Serializable[Any](response)
@@ -196,6 +219,9 @@ class ATTPClient:
         })
     
     async def _handle_incoming(self, message: PyAttpMessage):
+        if message.route_id <= 1:
+            return
+        
         relevant_route = next((route for route in self.routes if route.route_id == message.route_id), None)
         
         if not relevant_route:
@@ -218,21 +244,39 @@ class ATTPClient:
                 iterator = response.iterate()
                 if not iterator:
                     return
+
+                # Signal beginning of stream
+                await self.session.respond_stream(
+                    route=message.route_id,
+                    correlation_id=message.correlation_id,
+                    command_type=AttpCommand.STREAMBOS,
+                )
+
                 if response.is_async:
-                    async for chunk in iterator: # type: ignore
-                        await self.session.respond(
+                    async for chunk in iterator:  # type: ignore
+                        await self.session.respond_stream(
                             route=message.route_id,
                             correlation_id=message.correlation_id,
-                            payload=chunk
+                            payload=chunk,
+                            command_type=AttpCommand.CHUNK,
                         )
                 else:
-                    for chunk in iterator: # type: ignore
-                        await self.session.respond(
+                    for chunk in iterator:  # type: ignore
+                        await self.session.respond_stream(
                             route=message.route_id,
                             correlation_id=message.correlation_id,
-                            payload=chunk
+                            payload=chunk,
+                            command_type=AttpCommand.CHUNK,
                         )
-                
+
+                # End of stream
+                await self.session.respond_stream(
+                    route=message.route_id,
+                    correlation_id=message.correlation_id,
+                    command_type=AttpCommand.STREAMEOS,
+                )
+                return
+
             await self.session.respond(
                 route=message.route_id,
                 correlation_id=message.correlation_id,
