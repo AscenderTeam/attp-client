@@ -56,9 +56,8 @@ class AttpInferenceAPI:
         self,
         chat_id: UUID,
         agent_id: int | None = None,
-        agent_name: str | None = None,
-        timeout: float = 30
-    ) -> dict[str, Any]:
+        agent_name: str | None = None
+    ) -> None:
         """
         Change the agent associated with a chat.
 
@@ -70,26 +69,20 @@ class AttpInferenceAPI:
             The ID of the new agent to associate with the chat, by default None.
         agent_name : str | None, optional
             The name of the new agent to associate with the chat, by default None.
-        timeout : float, optional
-            The timeout for the request, by default 30.
 
         Returns
         -------
         dict[str, Any]
             The response from the change agent request.
         """
-        response = await self.router.send(
+        response = await self.router.emit(
             "messages:chat:change_agent",
             Serializable[dict[str, Any]]({
                 "chat_id": str(chat_id),
                 "agent_id": agent_id,
                 "agent_name": agent_name
-            }),
-            timeout=timeout,
-            expected_response=dict[str, Any]
+            })
         )
-        
-        return response
     
     @overload
     async def invoke_inference(

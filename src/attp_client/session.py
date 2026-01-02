@@ -150,7 +150,7 @@ class SessionDriver:
         if isinstance(route, str):
             relevant_route = resolve_route_by_id("event", route, self.server_routes).route_id
         
-        frame = PyAttpMessage(int(relevant_route), AttpCommand.CALL, correlation_id=None, payload=data.mpd() if data is not None else None, version=ATTP_VERSION)
+        frame = PyAttpMessage(int(relevant_route), AttpCommand.EMIT, correlation_id=None, payload=data.mpd() if data is not None else None, version=ATTP_VERSION)
         await self.send_raw(frame)
     
     async def authenticate(self, route_mappings: Sequence[AttpRouteMapping] | None) -> None:

@@ -88,14 +88,14 @@ class AttpChats:
         return response
     
     async def get_chat(self, chat_id: UUID):
-        response = await self.router.send("chats:specific", Serializable[dict[str, UUID]]({"chat_id": chat_id}), expected_response=IChatResponse)
+        response = await self.router.send("chats:specific", Serializable[dict[str, str]]({"chat_id": chat_id.hex}), expected_response=IChatResponse)
         
         return response
     
     async def delete_chat(self, chat_id: UUID):
-        await self.router.emit("chats:delete", Serializable[dict[str, UUID]]({"chat_id": chat_id}))
+        await self.router.emit("chats:delete", Serializable[dict[str, str]]({"chat_id": chat_id.hex}))
 
     async def change_agent(self, chat_id: UUID, new_agent_id: int):
-        await self.router.emit("chats:agent", Serializable[dict[str, UUID | int]]({"chat_id": chat_id, "new_agent_id": new_agent_id}))
+        await self.router.emit("chats:agent", Serializable[dict[str, str | int]]({"chat_id": chat_id.hex, "new_agent_id": new_agent_id}))
     
     
