@@ -75,7 +75,7 @@ class AttpInferenceAPI:
         dict[str, Any]
             The response from the change agent request.
         """
-        response = await self.router.emit(
+        await self.router.emit(
             "messages:chat:change_agent",
             Serializable[dict[str, Any]]({
                 "chat_id": str(chat_id),
