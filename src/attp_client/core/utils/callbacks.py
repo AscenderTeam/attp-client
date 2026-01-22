@@ -23,7 +23,7 @@ async def execute_call(
     payload = {}
     
     if frame.payload:
-        payload = msgpack.unpack(frame.payload)
+        payload = msgpack.unpackb(frame.payload)
     
     response = await execute_validated(callback, payload)
     
@@ -79,6 +79,6 @@ async def execute_event(
     payload = {}
     
     if frame.payload:
-        payload = msgpack.unpack(frame.payload)
+        payload = msgpack.unpackb(frame.payload)
     
     await execute_validated(callback, payload)
