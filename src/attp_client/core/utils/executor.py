@@ -1,11 +1,13 @@
 import inspect
-from typing import Any, Mapping
+from typing import Any, Mapping, get_args, get_origin
+
 from pydantic import BaseModel, TypeAdapter
 
 from attp_client.misc.fixed_basemodel import FixedBaseModel
+from attp_core.rs_api import PyAttpMessage
 
 
-async def execute_validated(callback: Any, payload: Any):
+async def execute_validated(callback: Any, payload: Any, *, frame: PyAttpMessage | None = None):
     """Thx GPT-5 for the call validator!"""
     sig = inspect.signature(callback)
     params = list(sig.parameters.values())
@@ -15,9 +17,29 @@ async def execute_validated(callback: Any, payload: Any):
         params = params[1:]
         sig = sig.replace(parameters=params)
 
-    # --- Case 1: single-param model ---
+    def wants_frame(param: inspect.Parameter) -> bool:
+        if frame is None:
+            return False
+
+        ann = param.annotation
+        if ann is PyAttpMessage:
+            return True
+
+        origin = get_origin(ann)
+        if origin is not None and PyAttpMessage in get_args(ann):
+            return True
+
+        return ann is inspect._empty and param.name in ("message", "frame")
+
+    # --- Case 1: single-param message frame ---
     if len(params) == 1:
         param = params[0]
+        if wants_frame(param):
+            if inspect.iscoroutinefunction(callback):
+                return await callback(frame)
+            return callback(frame)
+
+        # --- Case 2: single-param model ---
         ann = param.annotation
 
         if ann is not inspect._empty and (issubclass_safe(ann, FixedBaseModel) or issubclass_safe(ann, BaseModel)):
@@ -26,9 +48,13 @@ async def execute_validated(callback: Any, payload: Any):
                 return await callback(model)
             return callback(model)
 
-    # --- Case 2: normal kwargs mapping ---
+    # --- Case 3: normal kwargs mapping ---
     bound_args = {}
     for name, param in sig.parameters.items():
+        if name not in payload and wants_frame(param):
+            bound_args[name] = frame
+            continue
+
         if name not in payload and param.default is inspect.Parameter.empty:
             raise TypeError(f"Missing required argument: {name}")
 

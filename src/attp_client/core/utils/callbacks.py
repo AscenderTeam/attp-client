@@ -25,7 +25,7 @@ async def execute_call(
     if frame.payload:
         payload = msgpack.unpackb(frame.payload)
     
-    response = await execute_validated(callback, payload)
+    response = await execute_validated(callback, payload, frame=frame)
     
     if isinstance(response, StreamObject):
         iterable = response.iterate()
@@ -81,4 +81,4 @@ async def execute_event(
     if frame.payload:
         payload = msgpack.unpackb(frame.payload)
     
-    await execute_validated(callback, payload)
+    await execute_validated(callback, payload, frame=frame)
