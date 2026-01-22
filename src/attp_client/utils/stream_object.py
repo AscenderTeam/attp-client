@@ -6,10 +6,7 @@ from attp_client.misc.fixed_basemodel import FixedBaseModel
 from collections.abc import AsyncIterable as AsyncIterableABC, AsyncIterator as AsyncIteratorABC
 
 
-IterateWrapper: TypeAlias = (Iterable[FixedBaseModel] | Iterator[FixedBaseModel] | 
-                             AsyncGenerator[FixedBaseModel, None] | AsyncIterable[FixedBaseModel] |
-                            AsyncIterator[FixedBaseModel]
-                            )
+IterateWrapper: TypeAlias = (Iterable[FixedBaseModel] |  AsyncIterable[FixedBaseModel])
 
 class StreamObject:    
     def __init__(

@@ -10,3 +10,9 @@ class AttpException(Exception):
     
     def to_ierr(self):
         return IErr(detail={"code": self.code, **self.detail})
+    
+    @staticmethod
+    def from_ierr(err: IErr, **kwargs):
+        code = err.detail.pop("code", "UnknownError")
+        
+        return AttpException(code=code, detail={**err.detail, **kwargs})

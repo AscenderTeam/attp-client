@@ -1,20 +1,16 @@
-import asyncio
 from contextvars import ContextVar
 from typing import Any, AsyncIterable, Callable, TypeVar, overload
 import msgpack
+from uuid import uuid4
 from pydantic import TypeAdapter
-from reactivex import Subject, defer, empty, from_future, of, operators as ops, throw, timer
-from reactivex.scheduler.eventloop import AsyncIOScheduler
-from attp_core.rs_api import PyAttpMessage, AttpCommand
+from attp_core.rs_api import PyAttpMessage
 
-from attp_client.errors.correlated_rpc_exception import CorrelatedRPCException
+from attp_client.core.ack_gate import StatefulAckGate
 from attp_client.errors.dead_session import DeadSessionError
 from attp_client.errors.serialization_error import SerializationError
-from attp_client.interfaces.error import IErr
 from attp_client.misc.fixed_basemodel import FixedBaseModel
 from attp_client.misc.serializable import Serializable
 from attp_client.session import SessionDriver
-from attp_client.utils.context_awaiter import ContextAwaiter
 from attp_client.utils.stream_receiver import StreamReceiver
 
 
@@ -24,13 +20,12 @@ S = TypeVar("S")
 
 class AttpRouter:
     def __init__(
-        self, 
-        responder: Subject[PyAttpMessage],
+        self,
         session: SessionDriver
     ) -> None:
-        self.responder = responder
         self.session = session
         self.context = ContextVar[str | None]("session_context", default=None)
+        self.ack_gate = StatefulAckGate()
     
     def convert_message(self, expected_type: type[T], message: PyAttpMessage) -> T | Any:
         response = self.__format_response(expected_type=expected_type, response_data=message)
@@ -62,21 +57,14 @@ class AttpRouter:
     ) -> T | Any:
         if not self.session.is_connected:
             raise DeadSessionError(self.session.organization_id)
-        # correlation_id = await self.session.send_message(pattern, data)
-        
-        responder = ContextAwaiter[Any](defer(
-            lambda _: (
-                from_future(asyncio.ensure_future(self.session.send_message(route=route, data=data))).pipe(
-                    ops.flat_map(
-                        lambda cid: empty().pipe(
-                            ops.concat(self.__pipe_filter(cid, timeout=timeout)),
-                        )
-                    )
-                )
-            )
-        ))
-        
-        response_data = await responder.wait()
+
+        correlation_id = uuid4().bytes
+        queue = await self.ack_gate.request_ack(correlation_id)
+        try:
+            await self.session.send_message(route=route, data=data, correlation_id=correlation_id)
+            response_data = await self.ack_gate.wait_for_ack(correlation_id, timeout, queue=queue)
+        finally:
+            await self.ack_gate.complete_ack(correlation_id)
         
         return self.__format_response(expected_type=expected_response or Any, response_data=response_data)
     
@@ -110,17 +98,23 @@ class AttpRouter:
     ) -> AsyncIterable[Any] | AsyncIterable[S]:
         if not self.session.is_connected:
             raise DeadSessionError(self.session.organization_id)
-        
-        stream = StreamReceiver(
-            from_future(asyncio.ensure_future(self.session.send_message(route=route, data=data))).pipe(
-                ops.flat_map(
-                    lambda cid: empty().pipe(
-                        ops.concat(self.__stream_pipe_filter(cid, timeout=timeout)),
-                    )
-                )
-            ),
-            formatter=formatter,
-        )
+
+        correlation_id = uuid4().bytes
+        queue = await self.ack_gate.request_ack(correlation_id)
+        try:
+            await self.session.send_message(route=route, data=data, correlation_id=correlation_id)
+        except Exception:
+            await self.ack_gate.complete_ack(correlation_id)
+            raise
+
+        async def _stream():
+            try:
+                async for frame in self.ack_gate.stream_ack(correlation_id, timeout, queue=queue):
+                    yield frame
+            finally:
+                await self.ack_gate.complete_ack(correlation_id)
+
+        stream = StreamReceiver(_stream(), formatter=formatter)
         
         return stream
         
@@ -130,53 +124,11 @@ class AttpRouter:
             raise DeadSessionError(self.session.organization_id)
         
         await self.session.emit_message(route, data)
-    
-    def __pipe_filter(self, awaiting_correlation_id: bytes, timeout: float):
-        loop = asyncio.get_event_loop()
-        asyncio_scheduler = AsyncIOScheduler(loop)
-        # print(awaiting_correlation_id)
-        return self.responder.pipe(
-            ops.subscribe_on(asyncio_scheduler),
-            ops.filter(lambda pair: pair.correlation_id == awaiting_correlation_id),
-            ops.flat_map(lambda r: throw(CorrelatedRPCException.from_err_object(correlation_id=r.correlation_id or b'<nocorrid>', err=IErr.mps(r.payload) if r.payload else IErr(detail={"code": "ErrorWithoutPayload"}))) if r.command_type == AttpCommand.ERR else of(r)),
-            #######################################
-            ##     This is RPC Defer Handler     ##
-            #######################################
-            ops.timeout_with_mapper(
-                timer(timeout, scheduler=asyncio_scheduler),
-                lambda i: (
-                    timer(timeout, scheduler=asyncio_scheduler) if getattr(i, "frame_type", None) == AttpCommand.DEFER else of(None)
-                ),
-                throw(TimeoutError("ATTP response failed."))
-            ),
-            ops.filter(lambda pair: pair.command_type == AttpCommand.ACK),
-            ops.first(),
-        )
 
-    def __stream_pipe_filter(self, awaiting_correlation_id: bytes, timeout: float):
-        loop = asyncio.get_event_loop()
-        asyncio_scheduler = AsyncIOScheduler(loop)
-        return self.responder.pipe(
-            ops.subscribe_on(asyncio_scheduler),
-            ops.filter(lambda pair: pair.correlation_id == awaiting_correlation_id),
-            ops.flat_map(lambda r: throw(CorrelatedRPCException.from_err_object(correlation_id=r.correlation_id or b'<nocorrid>', err=IErr.mps(r.payload) if r.payload else IErr(detail={"code": "ErrorWithoutPayload"}))) if r.command_type == AttpCommand.ERR else of(r)),
-            #######################################
-            ##     This is RPC Defer Handler     ##
-            #######################################
-            # ops.timeout_with_mapper(
-            #     timer(timeout, scheduler=asyncio_scheduler),
-            #     lambda i: (
-            #         timer(timeout, scheduler=asyncio_scheduler) if getattr(i, "frame_type", None) == AttpCommand.DEFER else of(None)
-            #     ),
-            #     throw(TimeoutError("ATTP stream failed."))
-            # ),
-            ops.filter(lambda pair: pair.command_type in (
-                AttpCommand.STREAMBOS,
-                AttpCommand.CHUNK,
-                AttpCommand.STREAMEOS,
-            )),
-            ops.take_while(lambda pair: pair.command_type != AttpCommand.STREAMEOS, inclusive=True),
-        )
+    async def handle_response(self, message: PyAttpMessage) -> None:
+        if not message.correlation_id:
+            return
+        await self.ack_gate.feed(message)
 
     def __format_response(self, expected_type: Any, response_data: PyAttpMessage):
         if issubclass(expected_type, FixedBaseModel):
