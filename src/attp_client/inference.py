@@ -76,7 +76,7 @@ class AttpInferenceAPI:
             The response from the change agent request.
         """
         await self.router.emit(
-            "messages:chat:change_agent",
+            "messages:chat:chagent",
             Serializable[dict[str, Any]]({
                 "chat_id": str(chat_id),
                 "agent_id": agent_id,
@@ -222,7 +222,7 @@ class AttpInferenceAPI:
             The response from the inference request.
         """
         for message in messages:
-            await self.router.send("messages:append", message, timeout=5)
+            await self.router.send("messages:append", message, timeout=timeout/2)
         
         if stream:
             iterable_response = await self.router.request_stream(
@@ -249,7 +249,7 @@ class AttpInferenceAPI:
         
         return response
 
-    async def append_message(self, message: IMessageDTOV2 | Sequence[IMessageDTOV2]) -> None:
+    async def append_message(self, message: IMessageDTOV2 | Sequence[IMessageDTOV2], timeout: float = 200) -> None:
         """
         Append a message or a sequence of messages to the current chat.
         
@@ -260,6 +260,6 @@ class AttpInferenceAPI:
         """
         if isinstance(message, Sequence):
             for msg in message:
-                await self.router.emit("messages:append", msg)
+                await self.router.send("messages:append", msg, timeout=timeout)
         else:
-            await self.router.emit("messages:append", message)
+            await self.router.send("messages:append", message, timeout=timeout)

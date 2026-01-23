@@ -63,7 +63,7 @@ async def execute_call(
         )
         return
 
-    if not isinstance(response, FixedBaseModel):
+    if not isinstance(response, FixedBaseModel) and not isinstance(response, Serializable):
         response = Serializable[Any](data=response)
     
     assert frame.correlation_id

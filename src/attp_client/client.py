@@ -45,7 +45,8 @@ class ATTPClient:
         max_retries: int = 20,
         limits: Limits | None = None,
         logger: Logger | None = None,
-        verbose: bool = False
+        verbose: bool = False,
+        verbosity_level: str = "info"
     ):
         self.__agt_token = agt_token
         self.organization_id = organization_id
@@ -69,7 +70,7 @@ class ATTPClient:
         self.dispatcher = None
         
         if self.verbose:
-            init_logging()
+            init_logging(filter=verbosity_level)
     
     async def connect(self):
         # Open the connection
